@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frog</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #81C784;
+            font-family: sans-serif;
+        }
+
+        /* The SVG frog naturally adapts and fills the screen */
+        svg {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+
+        /* Draggable PiP Overlay */
+        #camera-overlay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 240px;
+            height: 180px;
+            background: #000;
+            border: 3px solid #FFF;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+            cursor: grab;
+            z-index: 9999;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #camera-overlay:active {
+            cursor: grabbing;
+        }
+
+        /* CSS mirroring for the canvas so it acts like a mirror */
+        #camera-canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: #FFF;
+            font-weight: bold;
+            background: rgba(0,0,0,0.6);
+            padding: 20px 40px;
+            border-radius: 10px;
+            z-index: 10000;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">Loading AI Face Tracker...<br><small style="font-size: 14px;">(Please allow camera access)</small></div>
+
+    <video id="input-video" style="display: none;" playsinline></video>
+
+    <div id="camera-overlay">
+        <canvas id="camera-canvas" width="640" height="480"></canvas>
+    </div>
+
+    <svg id="frog-svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet">
+        <defs>
+            <radialGradient id="skin" cx="50%" cy="30%" r="70%">
+                <stop offset="0%" stop-color="#8bc34a"/>
+                <stop offset="100%" stop-color="#33691e"/>
+            </radialGradient>
+            <radialGradient id="belly" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#dce775"/>
+                <stop offset="100%" stop-color="#afb42b"/>
+            </radialGradient>
+            
+            <clipPath id="left-eye-clip">
+                <ellipse id="left-eye-mask" cx="280" cy="180" rx="70" ry="80"/>
+            </clipPath>
+            <clipPath id="right-eye-clip">
+                <ellipse id="right-eye-mask" cx="520" cy="180" rx="70" ry="80"/>
+            </clipPath>
+            <clipPath id="mouth-clip">
+                <path id="mouth-mask-path" d="M 250 380 Q 400 380 550 380 Q 400 380 250 380 Z"/>
+            </clipPath>
+        </defs>
+
+        <ellipse cx="200" cy="500" rx="100" ry="80" fill="url(#skin)" transform="rotate(30 200 500)" />
+        <ellipse cx="600" cy="500" rx="100" ry="80" fill="url(#skin)" transform="rotate(-30 600 500)" />
+
+        <ellipse cx="400" cy="450" rx="320" ry="250" fill="url(#skin)" />
+        <ellipse cx="400" cy="550" rx="220" ry="150" fill="url(#belly)" />
+
+        <circle cx="160" cy="380" r="20" fill="#33691e" opacity="0.4"/>
+        <circle cx="210" cy="450" r="30" fill="#33691e" opacity="0.4"/>
+        <circle cx="640" cy="380" r="25" fill="#33691e" opacity="0.4"/>
+        <circle cx="590" cy="470" r="35" fill="#33691e" opacity="0.4"/>
+
+        <circle cx="280" cy="180" r="90" fill="url(#skin)" />
+        <circle cx="520" cy="180" r="90" fill="url(#skin)" />
+
+        <ellipse id="left-eye-white" cx="280" cy="180" rx="70" ry="80" fill="#fff" />
+        <ellipse id="right-eye-white" cx="520" cy="180" rx="70" ry="80" fill="#fff" />
+
+        <g clip-path="url(#left-eye-clip)">
+            <g id="left-pupil-group">
+                <circle cx="280" cy="180" r="28" fill="#111" />
+                <circle cx="270" cy="170" r="8" fill="#fff" />
+            </g>
+        </g>
+        <g clip-path="url(#right-eye-clip)">
+            <g id="right-pupil-group">
+                <circle cx="520" cy="180" r="28" fill="#111" />
+                <circle cx="510" cy="170" r="8" fill="#fff" />
+            </g>
+        </g>
+
+        <ellipse cx="370" cy="320" rx="5" ry="12" fill="#1b5e20" transform="rotate(-30 370 320)" />
+        <ellipse cx="430" cy="320" rx="5" ry="12" fill="#1b5e20" transform="rotate(30 430 320)" />
+
+        <path id="mouth-path" d="M 250 380 Q 400 380 550 380 Q 400 380 250 380 Z" fill="#4a0000" stroke="#1b5e20" stroke-width="5" stroke-linejoin="round"/>
+
+        <g clip-path="url(#mouth-clip)">
+            <ellipse cx="400" cy="480" rx="90" ry="60" fill="#e57373" />
+            <path d="M 400 430 L 400 480" stroke="#c62828" stroke-width="4" fill="none"/>
+        </g>
+    </svg>
+
+    <script>
+        // DOM Elements
+        const videoElement = document.getElementById('input-video');
+        const canvasElement = document.getElementById('camera-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const loadingScreen = document.getElementById('loading');
+        
+        // SVG Elements to Animate
+        const leftEyeWhite = document.getElementById('left-eye-white');
+        const rightEyeWhite = document.getElementById('right-eye-white');
+        const leftEyeMask = document.getElementById('left-eye-mask');
+        const rightEyeMask = document.getElementById('right-eye-mask');
+        const leftPupil = document.getElementById('left-pupil-group');
+        const rightPupil = document.getElementById('right-pupil-group');
+        const mouthPath = document.getElementById('mouth-path');
+        const mouthMaskPath = document.getElementById('mouth-mask-path');
+
+        let isLoaded = false;
+
+        // --- SMOOTHING STATE (Low-Pass Filter) ---
+        // We store the "current" values here and blend them with incoming data
+        const state = {
+            leftRy: 80,
+            rightRy: 80,
+            mouthY: 380,
+            moveX_L: 0, moveY_L: 0,
+            moveX_R: 0, moveY_R: 0
+        };
+
+        // Linear Interpolation helper function
+        // A smoothing factor of 0.3 means we take 30% of the new data and 70% of the old data every frame.
+        // Lower = smoother but more sluggish. Higher = faster but more jittery.
+        const smoothFactor = 0.25; 
+        function lerp(start, end, amt) {
+            return (1 - amt) * start + amt * end;
+        }
+
+        function onResults(results) {
+            if (!isLoaded) {
+                loadingScreen.style.display = 'none';
+                isLoaded = true;
+            }
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                // Draw skeleton
+                drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#C0C0C040', lineWidth: 1});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#FF3030'});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#30FF30'});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#E0E0E0'});
+
+                // 1. Calculate Face Height
+                const faceHeight = Math.abs(landmarks[152].y - landmarks[10].y);
+
+                // 2. Map Mouth Openness
+                const mouthDist = Math.abs(landmarks[14].y - landmarks[13].y);
+                const mouthOpenness = Math.max(0, Math.min(1, ((mouthDist / faceHeight) - 0.015) / 0.08));
+
+                // 3. Map Eye Blinks
+                const eyeDistR = Math.abs(landmarks[374].y - landmarks[386].y);
+                const eyeDistL = Math.abs(landmarks[145].y - landmarks[159].y);
+                
+                const eyeOpenR = Math.max(0, Math.min(1, ((eyeDistR / faceHeight) - 0.015) / 0.025));
+                const eyeOpenL = Math.max(0, Math.min(1, ((eyeDistL / faceHeight) - 0.015) / 0.025));
+
+                // 4. Map Pupil/Iris Tracking
+                const gazeX_R = (landmarks[473].x - landmarks[362].x) / (landmarks[263].x - landmarks[362].x || 0.01);
+                const gazeY_R = (landmarks[473].y - landmarks[386].y) / (landmarks[374].y - landmarks[386].y || 0.01);
+
+                const gazeX_L = (landmarks[468].x - landmarks[133].x) / (landmarks[33].x - landmarks[133].x || 0.01);
+                const gazeY_L = (landmarks[468].y - landmarks[159].y) / (landmarks[145].y - landmarks[159].y || 0.01);
+
+                // === CALCULATE RAW TARGET VALUES ===
+                const targetLeftRy = Math.max(1, eyeOpenR * 80);
+                const targetRightRy = Math.max(1, eyeOpenL * 80);
+                const targetMouthY = 380 + (mouthOpenness * 180);
+                
+                const targetMoveX_L = (0.5 - gazeX_R) * 60;
+                const targetMoveY_L = (gazeY_R - 0.5) * 60;
+                const targetMoveX_R = (0.5 - gazeX_L) * 60;
+                const targetMoveY_R = (gazeY_L - 0.5) * 60;
+
+                // === APPLY SMOOTHING (LERP) ===
+                state.leftRy = lerp(state.leftRy, targetLeftRy, smoothFactor);
+                state.rightRy = lerp(state.rightRy, targetRightRy, smoothFactor);
+                state.mouthY = lerp(state.mouthY, targetMouthY, smoothFactor);
+                state.moveX_L = lerp(state.moveX_L, targetMoveX_L, smoothFactor);
+                state.moveY_L = lerp(state.moveY_L, targetMoveY_L, smoothFactor);
+                state.moveX_R = lerp(state.moveX_R, targetMoveX_R, smoothFactor);
+                state.moveY_R = lerp(state.moveY_R, targetMoveY_R, smoothFactor);
+
+                // === UPDATE SVG ELEMENTS ===
+                leftEyeWhite.setAttribute('ry', state.leftRy);
+                leftEyeMask.setAttribute('ry', state.leftRy);
+
+                rightEyeWhite.setAttribute('ry', state.rightRy);
+                rightEyeMask.setAttribute('ry', state.rightRy);
+
+                const dPath = `M 250 380 Q 400 380 550 380 Q 400 ${state.mouthY} 250 380 Z`;
+                mouthPath.setAttribute('d', dPath);
+                mouthMaskPath.setAttribute('d', dPath);
+
+                leftPupil.setAttribute('transform', `translate(${state.moveX_L}, ${state.moveY_L})`);
+                rightPupil.setAttribute('transform', `translate(${state.moveX_R}, ${state.moveY_R})`);
+            }
+            canvasCtx.restore();
+        }
+
+        // Initialize MediaPipe FaceMesh
+        const faceMesh = new FaceMesh({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }});
+        
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true, // IMPORTANT: Enables Iris tracking
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        
+        faceMesh.onResults(onResults);
+
+        // Initialize Camera
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
+
+        // --- Draggable Overlay Logic ---
+        const overlay = document.getElementById('camera-overlay');
+        let isDragging = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        overlay.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            dragOffsetX = e.clientX - overlay.offsetLeft;
+            dragOffsetY = e.clientY - overlay.offsetTop;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                overlay.style.left = (e.clientX - dragOffsetX) + 'px';
+                overlay.style.top = (e.clientY - dragOffsetY) + 'px';
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        overlay.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            dragOffsetX = e.touches[0].clientX - overlay.offsetLeft;
+            dragOffsetY = e.touches[0].clientY - overlay.offsetTop;
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            if (isDragging) {
+                e.preventDefault(); 
+                overlay.style.left = (e.touches[0].clientX - dragOffsetX) + 'px';
+                overlay.style.top = (e.touches[0].clientY - dragOffsetY) + 'px';
+            }
+        }, { passive: false });
+
+        window.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+    </script>
+</body>
+</html>

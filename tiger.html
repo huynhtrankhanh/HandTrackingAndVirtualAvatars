@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Body-Controlled Tiger</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: radial-gradient(circle at center, #2e4a36, #142118);
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: sans-serif;
+        }
+
+        /* Full Screen Responsive Tiger */
+        #svg-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Draggable Camera Overlay */
+        #pip-overlay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 240px;
+            background: #000;
+            border: 3px solid #ff9900;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            z-index: 100;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #pip-handle {
+            height: 25px;
+            background: #333;
+            color: #aaa;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: grab;
+            user-select: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        #pip-handle:active {
+            cursor: grabbing;
+        }
+
+        #output_canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+            transform: scaleX(-1); /* Mirror camera feed */
+        }
+
+        /* Loading Screen */
+        #loader {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: #ff9900;
+            padding: 20px 40px;
+            border-radius: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            z-index: 200;
+            border: 2px solid #ff9900;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loader">Initializing AI Model & Camera...<br><span style="font-size:14px; color:#aaa; font-weight:normal;">Please allow camera permissions</span></div>
+
+    <div id="svg-container">
+        <svg id="tiger-svg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet" style="width:100%; height:100%; max-height: 1000px;">
+            <g transform="translate(500, 450)">
+                
+                <g id="tiger-tail" transform="translate(0, 150)">
+                    <path d="M 0 0 C -80 80 -120 -80 -200 -30" fill="none" stroke="#ff9900" stroke-width="20" stroke-linecap="round"/>
+                    <path d="M -20 5 C -80 80 -120 -80 -200 -30" fill="none" stroke="#111" stroke-width="20" stroke-dasharray="15 35" stroke-linecap="round"/>
+                </g>
+
+                <g id="tiger-left-leg" transform="translate(-45, 160)">
+                    <path d="M 0 0 C -25 70 -15 140 0 180 C 15 140 25 70 0 0 Z" fill="#e68a00" stroke="#111" stroke-width="6" />
+                    <path d="M -15 50 L 5 55 M -15 90 L 5 95 M -10 130 L 10 135" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round" />
+                    <circle cx="0" cy="180" r="25" fill="#fff" stroke="#111" stroke-width="6" />
+                    <path d="M -10 195 L -10 205 M 0 198 L 0 210 M 10 195 L 10 205" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+                </g>
+
+                <g id="tiger-right-leg" transform="translate(45, 160)">
+                    <path d="M 0 0 C -15 70 -25 140 0 180 C 25 140 15 70 0 0 Z" fill="#e68a00" stroke="#111" stroke-width="6" />
+                    <path d="M 15 50 L -5 55 M 15 90 L -5 95 M 10 130 L -10 135" fill="none" stroke="#111" stroke-width="5" stroke-linecap="round" />
+                    <circle cx="0" cy="180" r="25" fill="#fff" stroke="#111" stroke-width="6" />
+                    <path d="M -10 195 L -10 205 M 0 198 L 0 210 M 10 195 L 10 205" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+                </g>
+
+                <g id="tiger-torso">
+                    <path d="M -70 -100 C -100 0 -90 120 -60 200 C -30 230 30 230 60 200 C 90 120 100 0 70 -100 Z" fill="#ff9900" stroke="#111" stroke-width="6" />
+                    <path d="M -45 -80 C -60 0 -50 100 -35 180 C -15 200 15 200 35 180 C 50 100 60 0 45 -80 Z" fill="#fff" opacity="0.9" stroke="#111" stroke-width="2" />
+                    <path d="M -85 -50 Q -50 -40 -75 -20" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+                    <path d="M 85 -50 Q 50 -40 75 -20" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+                    <path d="M -88 40 Q -40 50 -80 70" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+                    <path d="M 88 40 Q 40 50 80 70" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+                    <path d="M -80 120 Q -40 130 -70 150" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+                    <path d="M 80 120 Q 40 130 70 150" fill="none" stroke="#111" stroke-width="8" stroke-linecap="round"/>
+                </g>
+
+                <g id="tiger-left-arm" transform="translate(-75, -70)">
+                    <path d="M -20 0 C -35 80 -25 160 0 190 C 25 160 15 80 20 0 Z" fill="#ff9900" stroke="#111" stroke-width="6" />
+                    <path d="M -25 40 L -5 45 M -28 90 L -8 95 M -22 140 L -2 145" fill="none" stroke="#111" stroke-width="6" stroke-linecap="round" />
+                    <circle cx="0" cy="190" r="30" fill="#fff" stroke="#111" stroke-width="6" />
+                    <path d="M -12 205 L -12 215 M 0 210 L 0 225 M 12 205 L 12 215" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+                </g>
+
+                <g id="tiger-right-arm" transform="translate(75, -70)">
+                    <path d="M -20 0 C -15 80 -25 160 0 190 C 25 160 35 80 20 0 Z" fill="#ff9900" stroke="#111" stroke-width="6" />
+                    <path d="M 25 40 L 5 45 M 28 90 L 8 95 M 22 140 L 2 145" fill="none" stroke="#111" stroke-width="6" stroke-linecap="round" />
+                    <circle cx="0" cy="190" r="30" fill="#fff" stroke="#111" stroke-width="6" />
+                    <path d="M -12 205 L -12 215 M 0 210 L 0 225 M 12 205 L 12 215" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+                </g>
+
+                <g id="tiger-head" transform="translate(0, -110)">
+                    
+                    <g id="ears">
+                        <path d="M -50 -50 C -80 -110 -20 -120 -15 -70 Z" fill="#ff9900" stroke="#111" stroke-width="6" />
+                        <path d="M -45 -60 C -60 -95 -30 -100 -25 -70 Z" fill="#fff" />
+                        <path d="M 50 -50 C 80 -110 20 -120 15 -70 Z" fill="#ff9900" stroke="#111" stroke-width="6" />
+                        <path d="M 45 -60 C 60 -95 30 -100 25 -70 Z" fill="#fff" />
+                    </g>
+
+                    <path d="M -70 10 L -100 20 L -75 35 L -110 50 L -60 65" fill="#fff" stroke="#111" stroke-width="5" stroke-linejoin="round" />
+                    <path d="M 70 10 L 100 20 L 75 35 L 110 50 L 60 65" fill="#fff" stroke="#111" stroke-width="5" stroke-linejoin="round" />
+
+                    <circle cx="0" cy="0" r="80" fill="#ff9900" stroke="#111" stroke-width="6" />
+
+                    <path d="M 0 -80 L 0 -35 M -20 -70 L -10 -40 M 20 -70 L 10 -40 M -40 -50 L -25 -30 M 40 -50 L 25 -30" fill="none" stroke="#111" stroke-width="7" stroke-linecap="round"/>
+                    
+                    <circle cx="-35" cy="-10" r="16" fill="#fff" stroke="#111" stroke-width="4"/>
+                    <circle cx="35" cy="-10" r="16" fill="#fff" stroke="#111" stroke-width="4"/>
+                    
+                    <circle cx="-35" cy="-10" r="6" fill="#111" />
+                    <circle cx="35" cy="-10" r="6" fill="#111" />
+
+                    <g id="tiger-jaw" transform="translate(0, 0)">
+                        <path d="M -25 50 C -15 80 15 80 25 50" fill="#cc0000" stroke="#111" stroke-width="4" />
+                        <path d="M -15 65 C -5 75 5 75 15 65" fill="#ff66b2" /> <path d="M -35 45 C -20 85 20 85 35 45" fill="none" stroke="#111" stroke-width="6" stroke-linecap="round" />
+                    </g>
+
+                    <ellipse cx="0" cy="35" rx="45" ry="30" fill="#fff" stroke="#111" stroke-width="5" />
+                    
+                    <path d="M -15 25 L 15 25 L 0 45 Z" fill="#ff6666" stroke="#111" stroke-width="3" stroke-linejoin="round" />
+
+                    <circle cx="-15" cy="40" r="2" fill="#111"/>
+                    <circle cx="-25" cy="45" r="2" fill="#111"/>
+                    <circle cx="-10" cy="50" r="2" fill="#111"/>
+                    
+                    <circle cx="15" cy="40" r="2" fill="#111"/>
+                    <circle cx="25" cy="45" r="2" fill="#111"/>
+                    <circle cx="10" cy="50" r="2" fill="#111"/>
+
+                    <path d="M -45 30 Q -100 20 -120 25 M -45 40 Q -100 40 -120 45 M -45 50 Q -100 60 -120 65" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+                    <path d="M 45 30 Q 100 20 120 25 M 45 40 Q 100 40 120 45 M 45 50 Q 100 60 120 65" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+                </g>
+            </g>
+        </svg>
+    </div>
+
+    <div id="pip-overlay">
+        <div id="pip-handle">Drag Camera Overlay</div>
+        <video id="input_video" style="display: none;" playsinline></video>
+        <canvas id="output_canvas" width="320" height="240"></canvas>
+    </div>
+
+    <script>
+        // --- Draggable PIP Logic ---
+        const overlay = document.getElementById('pip-overlay');
+        const handle = document.getElementById('pip-handle');
+        let isDragging = false, startX, startY, startLeft, startTop;
+
+        handle.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            startLeft = overlay.offsetLeft;
+            startTop = overlay.offsetTop;
+            document.body.style.userSelect = 'none';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            overlay.style.left = `${startLeft + dx}px`;
+            overlay.style.top = `${startTop + dy}px`;
+            overlay.style.right = 'auto'; // Disable default right pinning
+        });
+
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            document.body.style.userSelect = '';
+        });
+
+        // --- Tiger SVG Animation Elements & State ---
+        const tHead = document.getElementById('tiger-head');
+        const tTorso = document.getElementById('tiger-torso');
+        const tLeftArm = document.getElementById('tiger-left-arm');
+        const tRightArm = document.getElementById('tiger-right-arm');
+        const tLeftLeg = document.getElementById('tiger-left-leg');
+        const tRightLeg = document.getElementById('tiger-right-leg');
+        const tJaw = document.getElementById('tiger-jaw');
+        const tTail = document.getElementById('tiger-tail');
+
+        // Linear interpolation objects for smooth animation (Target vs Current)
+        const angles = {
+            head: { t: 0, c: 0 },
+            body: { t: 0, c: 0 },
+            lArm: { t: 0, c: 0 },
+            rArm: { t: 0, c: 0 },
+            lLeg: { t: 0, c: 0 },
+            rLeg: { t: 0, c: 0 },
+            jaw:  { t: 0, c: 0 }
+        };
+
+        function lerp(start, end, amt) {
+            return (1 - amt) * start + amt * end;
+        }
+
+        // 60FPS Render Loop applied to the SVG
+        function renderTiger() {
+            // Apply smoothing
+            for (let part in angles) {
+                angles[part].c = lerp(angles[part].c, angles[part].t, 0.15);
+            }
+
+            tHead.setAttribute('transform', `translate(0, -110) rotate(${angles.head.c})`);
+            tTorso.setAttribute('transform', `rotate(${angles.body.c})`);
+            tLeftArm.setAttribute('transform', `translate(-75, -70) rotate(${angles.lArm.c})`);
+            tRightArm.setAttribute('transform', `translate(75, -70) rotate(${angles.rArm.c})`);
+            tLeftLeg.setAttribute('transform', `translate(-45, 160) rotate(${angles.lLeg.c})`);
+            tRightLeg.setAttribute('transform', `translate(45, 160) rotate(${angles.rLeg.c})`);
+            tJaw.setAttribute('transform', `translate(0, ${angles.jaw.c})`);
+            
+            // Auto wagging tail based on time
+            tTail.setAttribute('transform', `translate(0, 150) rotate(${Math.sin(Date.now() / 250) * 15})`);
+
+            requestAnimationFrame(renderTiger);
+        }
+        renderTiger(); // Start render loop immediately
+
+        // --- MediaPipe Holistic Logic ---
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const loader = document.getElementById('loader');
+        let initialized = false;
+
+        function onResults(results) {
+            if (!initialized) {
+                loader.style.display = 'none';
+                initialized = true;
+            }
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            // 1. Process Pose Landmarks (Body/Limbs)
+            if (results.poseLandmarks) {
+                const lm = results.poseLandmarks;
+                
+                // Draw skeletal overlay on the PIP canvas
+                drawConnectors(canvasCtx, lm, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 2});
+                drawLandmarks(canvasCtx, lm, {color: '#FF0000', lineWidth: 1, radius: 2});
+
+                // Body Sway (Shoulders vs Hips)
+                const midShoulderX = (lm[11].x + lm[12].x) / 2;
+                const midShoulderY = (lm[11].y + lm[12].y) / 2;
+                const midHipX = (lm[23].x + lm[24].x) / 2;
+                const midHipY = (lm[23].y + lm[24].y) / 2;
+                angles.body.t = (Math.atan2(midHipY - midShoulderY, midHipX - midShoulderX) * 180 / Math.PI) - 90;
+
+                // User's Right Arm controls Tiger's Left Arm (Screen Left)
+                if (lm[12] && lm[14]) {
+                    angles.lArm.t = (Math.atan2(lm[14].y - lm[12].y, lm[14].x - lm[12].x) * 180 / Math.PI) - 90;
+                }
+                
+                // User's Left Arm controls Tiger's Right Arm (Screen Right)
+                if (lm[11] && lm[13]) {
+                    angles.rArm.t = (Math.atan2(lm[13].y - lm[11].y, lm[13].x - lm[11].x) * 180 / Math.PI) - 90;
+                }
+
+                // User's Right Leg controls Tiger's Left Leg
+                if (lm[24] && lm[26]) {
+                    angles.lLeg.t = (Math.atan2(lm[26].y - lm[24].y, lm[26].x - lm[24].x) * 180 / Math.PI) - 90;
+                }
+
+                // User's Left Leg controls Tiger's Right Leg
+                if (lm[23] && lm[25]) {
+                    angles.rLeg.t = (Math.atan2(lm[25].y - lm[23].y, lm[25].x - lm[23].x) * 180 / Math.PI) - 90;
+                }
+            }
+
+            // 2. Process Face Landmarks (Head Tilt/Mouth)
+            if (results.faceLandmarks) {
+                const flm = results.faceLandmarks;
+                
+                // Draw faint face mesh
+                drawConnectors(canvasCtx, flm, FACEMESH_TESSELATION, {color: '#C0C0C040', lineWidth: 0.5});
+
+                // Head Tilt (Using eyes)
+                const eyeL = flm[33];
+                const eyeR = flm[263];
+                if (eyeL && eyeR) {
+                    angles.head.t = Math.atan2(eyeL.y - eyeR.y, eyeL.x - eyeR.x) * 180 / Math.PI;
+                }
+
+                // Jaw Mapping (Upper lip vs Lower lip distance)
+                const upperLip = flm[13];
+                const lowerLip = flm[14];
+                if (upperLip && lowerLip) {
+                    const mouthDistance = Math.abs(upperLip.y - lowerLip.y);
+                    // Translate mouth open distance to SVG pixel drop (0 to 30px)
+                    let jawDrop = (mouthDistance - 0.01) * 700; 
+                    angles.jaw.t = Math.min(Math.max(jawDrop, 0), 30);
+                }
+            }
+            
+            canvasCtx.restore();
+        }
+
+        // Initialize MediaPipe Holistic
+        const holistic = new Holistic({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
+        }});
+        
+        holistic.setOptions({
+            modelComplexity: 1, // 0 is faster, 1 is more accurate
+            smoothLandmarks: true,
+            enableSegmentation: false,
+            refineFaceLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        
+        holistic.onResults(onResults);
+
+        // Start Camera
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await holistic.send({image: videoElement});
+            },
+            width: 320,
+            height: 240
+        });
+        camera.start();
+
+    </script>
+</body>
+</html>

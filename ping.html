@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Multiplayer Hand Tracking Ping Pong</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+        }
+        #ui-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 10px;
+            backdrop-filter: blur(5px);
+        }
+        select, button {
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 14px;
+            margin-top: 5px;
+            width: 100%;
+        }
+        select:focus { outline: none; border-color: #00ff88; }
+        .instructions {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 10px;
+            max-width: 200px;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff88;
+            z-index: 200;
+            pointer-events: none;
+        }
+        video { display: none; }
+    </style>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="loading">Loading AI Models...</div>
+
+    <div id="ui-container">
+        <label for="cameraSelect"><strong>Select Camera</strong></label>
+        <select id="cameraSelect"></select>
+        <div class="instructions">
+            <strong>How to play:</strong><br>
+            Player 1: Left hand in view (moves left paddle).<br>
+            Player 2: Right hand in view (moves right paddle).<br>
+            Move hands <strong>UP and DOWN</strong> to control paddles.
+        </div>
+    </div>
+
+    <video id="webcam" autoplay playsinline></video>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3";
+
+        // --- 1. THREE.JS SETUP ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a2e);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 12, 10);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(0, 10, 5);
+        scene.add(dirLight);
+
+        // Game Table
+        const tableGeo = new THREE.BoxGeometry(20, 0.5, 12);
+        const tableMat = new THREE.MeshPhongMaterial({ color: 0x0f3460 });
+        const table = new THREE.Mesh(tableGeo, tableMat);
+        table.position.y = -0.25;
+        scene.add(table);
+
+        // Center Line
+        const lineGeo = new THREE.PlaneGeometry(0.2, 12);
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const line = new THREE.Mesh(lineGeo, lineMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.y = 0.01;
+        scene.add(line);
+
+        // Paddles
+        const paddleGeo = new THREE.BoxGeometry(0.5, 1, 2.5);
+        const p1Mat = new THREE.MeshPhongMaterial({ color: 0xe94560 }); // Left Player (Red)
+        const p2Mat = new THREE.MeshPhongMaterial({ color: 0x00ff88 }); // Right Player (Green)
+        
+        const paddle1 = new THREE.Mesh(paddleGeo, p1Mat);
+        paddle1.position.set(-9, 0.5, 0);
+        scene.add(paddle1);
+
+        const paddle2 = new THREE.Mesh(paddleGeo, p2Mat);
+        paddle2.position.set(9, 0.5, 0);
+        scene.add(paddle2);
+
+        // Ball
+        const ballGeo = new THREE.SphereGeometry(0.4, 32, 32);
+        const ballMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+        const ball = new THREE.Mesh(ballGeo, ballMat);
+        ball.position.set(0, 0.4, 0);
+        scene.add(ball);
+
+        // Game State
+        let ballVX = 0.15;
+        let ballVZ = 0.1;
+        const PADDLE_LIMIT = 4.5; // Constraints for Z axis
+
+        // Handle Window Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- 2. CAMERA SETUP ---
+        const video = document.getElementById('webcam');
+        const cameraSelect = document.getElementById('cameraSelect');
+
+        async function initCameraSystem() {
+            try {
+                // Request initial access to get device labels
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Camera ${index + 1}`;
+                    cameraSelect.appendChild(option);
+                });
+
+                cameraSelect.addEventListener('change', () => {
+                    startStream(cameraSelect.value);
+                });
+
+                if (videoDevices.length > 0) {
+                    await startStream(videoDevices[0].deviceId);
+                }
+            } catch (err) {
+                console.error("Camera access denied or error:", err);
+                document.getElementById('loading').innerText = "Camera Access Denied";
+            }
+        }
+
+        async function startStream(deviceId) {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            const constraints = {
+                video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' }
+            };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = stream;
+        }
+
+        // --- 3. MEDIAPIPE HAND TRACKING SETUP ---
+        let handLandmarker;
+        let lastVideoTime = -1;
+
+        async function initMediaPipe() {
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+            );
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+                    delegate: "GPU"
+                },
+                runningMode: "VIDEO",
+                numHands: 2 // Allow up to 2 hands for multiplayer
+            });
+
+            document.getElementById('loading').style.display = 'none';
+            animate(); // Start game loop once AI is loaded
+        }
+
+        // --- 4. MAIN GAME LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 4a. Process Hand Tracking
+            if (handLandmarker && video.readyState >= 2) {
+                const currentTimeInMs = performance.now();
+                if (video.currentTime !== lastVideoTime) {
+                    lastVideoTime = video.currentTime;
+                    const results = handLandmarker.detectForVideo(video, currentTimeInMs);
+                    
+                    if (results.landmarks) {
+                        const hands = results.landmarks;
+                        
+                        if (hands.length >= 2) {
+                            // Sort hands by X axis to consistently assign Left and Right players
+                            const sortedHands = [hands[0], hands[1]].sort((a, b) => a[8].x - b[8].x);
+                            
+                            // Map Y movement of hands to Z axis of paddles
+                            // Player 1 (Left hand in camera frame)
+                            let p1Z = (sortedHands[0][8].y - 0.5) * 16;
+                            paddle1.position.z = Math.max(Math.min(p1Z, PADDLE_LIMIT), -PADDLE_LIMIT);
+
+                            // Player 2 (Right hand in camera frame)
+                            let p2Z = (sortedHands[1][8].y - 0.5) * 16;
+                            paddle2.position.z = Math.max(Math.min(p2Z, PADDLE_LIMIT), -PADDLE_LIMIT);
+                            
+                        } else if (hands.length === 1) {
+                            // Single hand mode (fallback if only 1 hand detected)
+                            // Determine which side of the screen the hand is on
+                            let zPos = (hands[0][8].y - 0.5) * 16;
+                            zPos = Math.max(Math.min(zPos, PADDLE_LIMIT), -PADDLE_LIMIT);
+
+                            if (hands[0][8].x < 0.5) {
+                                paddle1.position.z = zPos;
+                            } else {
+                                paddle2.position.z = zPos;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4b. Game Physics (Ball Movement & Collisions)
+            ball.position.x += ballVX;
+            ball.position.z += ballVZ;
+
+            // Bounce off top/bottom walls (Z limits)
+            if (ball.position.z >= 5.6 || ball.position.z <= -5.6) {
+                ballVZ *= -1;
+            }
+
+            // Paddle Collisions
+            const paddleZReach = 1.6; // Halves of paddle depth + ball radius + tolerance
+
+            // Left Paddle (Player 1)
+            if (ball.position.x <= -8.5 && ball.position.x >= -9.5) {
+                if (Math.abs(ball.position.z - paddle1.position.z) < paddleZReach) {
+                    ballVX = Math.abs(ballVX) * 1.05; // Bounce back and speed up slightly
+                    ball.position.x = -8.5;
+                    // Add slight spin/deflection based on hit position
+                    ballVZ += (ball.position.z - paddle1.position.z) * 0.05;
+                }
+            }
+
+            // Right Paddle (Player 2)
+            if (ball.position.x >= 8.5 && ball.position.x <= 9.5) {
+                if (Math.abs(ball.position.z - paddle2.position.z) < paddleZReach) {
+                    ballVX = -Math.abs(ballVX) * 1.05;
+                    ball.position.x = 8.5;
+                    ballVZ += (ball.position.z - paddle2.position.z) * 0.05;
+                }
+            }
+
+            // Score / Out of bounds
+            if (ball.position.x > 11 || ball.position.x < -11) {
+                // Reset ball
+                ball.position.set(0, 0.4, 0);
+                ballVX = 0.15 * (Math.random() > 0.5 ? 1 : -1);
+                ballVZ = (Math.random() - 0.5) * 0.2;
+            }
+
+            // Cap max speeds
+            ballVX = Math.max(Math.min(ballVX, 0.4), -0.4);
+            ballVZ = Math.max(Math.min(ballVZ, 0.3), -0.3);
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize Systems
+        initCameraSystem().then(() => {
+            initMediaPipe();
+        });
+
+    </script>
+</body>
+</html>

@@ -44,4 +44,24 @@ The demos all use the MediaPipe framework. The general flow is as follows:
 
 We now focus on what we do with the tracking data.
 ### Bear, Frog, Tiger
+For these three demos, an SVG is controlled by the tracking data.
+* Bear
+  * Five body parts of the bear are controlled by the five fingers on a hand. The code, through the tracking data and an algorithm, determines whether a finger is folded or not. When a finger is extended, a body part moves one way. And when a finger is folded, a body part moves the other way. Because human thumbs are opposable, the algorithm for checking whether the thumb is folded or not is slightly different.
+  * The SVG is drawn as follows:
+* Frog
+  * The user's face is tracked. Then, the eyelids of the frog close or open depending on the eyelids of the user. The same goes for the mouth.
+  * The algorithm for determining the extent of opening an eyelid is as follows:
+  * The algorithm for determining the extent of opening the mouth is as follows:
+  * The algorithm for animation interpolation is as follows:
+* Tiger
+  * Both the hands and the face are tracked.
+### Hand
+Unlike the previous 3 demos, there is no SVG that is driven by tracking data. Rather, it tracks the user's hand, and then from the tracking data, it draws a skeleton on the screen with Three.js. Then, it attaches 5 stickers to the palmar side of the fingers. The 5 stickers are 5 different animal emojis.
+### Ping
+Ping is an adaptation of the classic ping pong game but controlled with two hands. The left hand serves as Player 1 and the right hand serves as Player 2. For each hand, the game computes a composite hand folding score which is then used to control the paddle.
+
+The algorithm to calculate the hand folding score is as follows:
+
+The algorithm to move the paddle based on the hand folding score is as follows:
 ## Conclusion
+The five demos together show that body part tracking is a practical technology that can run on diverse devices such as mobile phones and laptops. Body part tracking is reliable and can be used to create engaging experiences such as virtual avatars and games. From our experience, people are intrigued by the ability of our software to track body movements and animate characters on the screen, to the degree where they feel the characters on the screen are a part of their body during the duration of the demo.

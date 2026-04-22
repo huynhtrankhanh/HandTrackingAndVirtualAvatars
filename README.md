@@ -34,4 +34,14 @@ Tracking is only half of the challenge; the other half is mapping that data to a
 ### 5. ARCore and ARKit
 While our application focuses on browser-based accessibility, mobile-native frameworks like **Apple’s ARKit** and **Google’s ARCore** have set the benchmark for high-fidelity tracking. ARKit, in particular, uses the TrueDepth camera system to provide **BlendShape Coefficients**, which allow for extremely responsive facial "puppeteering"—a standard our application strives to emulate using standard RGB webcams.
 ## Methodology
+For ease of use, all demos are in the form of self-contained HTML files. They can be hosted on any static web server or run locally.
+
+The demos all use the MediaPipe framework. The general flow is as follows:
+* Acquire access to the webcam
+* Initialize MediaPipe to track body parts
+* Draw tracking lines and dots on an overlay window to signal to the user that tracking is taking place
+* Based on the tracking data, we then do something
+
+We now focus on what we do with the tracking data.
+### Bear, Frog, Tiger
 ## Conclusion

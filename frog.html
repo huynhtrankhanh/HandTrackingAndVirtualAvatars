@@ -7,7 +7,7 @@
     
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
 
     <style>
         body, html {
@@ -78,7 +78,7 @@
 
     <div id="loading">Loading AI Face Tracker...<br><small style="font-size: 14px;">(Please allow camera access)</small></div>
 
-    <video id="input-video" style="display: none;" playsinline></video>
+    <video id="input-video" style="display: none;" autoplay muted playsinline></video>
 
     <div id="camera-overlay">
         <canvas id="camera-canvas" width="640" height="480"></canvas>
@@ -145,6 +145,11 @@
             <ellipse cx="400" cy="480" rx="90" ry="60" fill="#e57373" />
             <path d="M 400 430 L 400 480" stroke="#c62828" stroke-width="4" fill="none"/>
         </g>
+
+        <g id="speech-bubble" style="opacity: 0; transition: opacity 0.3s ease;">
+            <path d="M 550 150 Q 550 50 675 50 Q 800 50 800 150 Q 800 250 675 250 Q 600 250 550 300 L 590 230 Q 550 210 550 150 Z" fill="#FFF" stroke="#33691e" stroke-width="4"/>
+            <text x="675" y="165" font-family="Arial" font-size="36" font-weight="bold" fill="#33691e" text-anchor="middle">HELLO!</text>
+        </g>
     </svg>
 
     <script>
@@ -163,8 +168,10 @@
         const rightPupil = document.getElementById('right-pupil-group');
         const mouthPath = document.getElementById('mouth-path');
         const mouthMaskPath = document.getElementById('mouth-mask-path');
+        const speechBubble = document.getElementById('speech-bubble');
 
         let isLoaded = false;
+        let lastHelloTime = 0; // For controlling speech bubble timing
 
         // --- SMOOTHING STATE (Low-Pass Filter) ---
         // We store the "current" values here and blend them with incoming data
@@ -184,6 +191,32 @@
             return (1 - amt) * start + amt * end;
         }
 
+        // Function to trigger the speech bubble and audio when a hand is detected
+        function triggerHello() {
+            const now = Date.now();
+            // Cooldown of 3 seconds to prevent spamming the speech bubble and audio
+            if (now - lastHelloTime > 3000) {
+                lastHelloTime = now;
+                
+                // 1. Show speech bubble
+                speechBubble.style.opacity = 1;
+                setTimeout(() => { speechBubble.style.opacity = 0; }, 2000);
+
+                // 2. Speak "Hello!" with a cute voice using Web Speech API
+                try {
+                    if ('speechSynthesis' in window) {
+                    const utterance = new SpeechSynthesisUtterance("Hello!");
+                    utterance.lang = 'en-US';
+                    utterance.pitch = 1.8; // Higher pitch for a cuter voice
+                    utterance.rate = 1.2;  // Slightly faster for more energy
+                    window.speechSynthesis.speak(utterance);
+                    }
+                } catch (error) {
+                    console.warn("Click to enable speech:", error);
+                }
+            }
+        }
+
         function onResults(results) {
             if (!isLoaded) {
                 loadingScreen.style.display = 'none';
@@ -194,8 +227,8 @@
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-                const landmarks = results.multiFaceLandmarks[0];
+            if (results.faceLandmarks) {
+                const landmarks = results.faceLandmarks;
                 
                 // Draw skeleton
                 drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#C0C0C040', lineWidth: 1});
@@ -218,11 +251,21 @@
                 const eyeOpenL = Math.max(0, Math.min(1, ((eyeDistL / faceHeight) - 0.015) / 0.025));
 
                 // 4. Map Pupil/Iris Tracking
-                const gazeX_R = (landmarks[473].x - landmarks[362].x) / (landmarks[263].x - landmarks[362].x || 0.01);
-                const gazeY_R = (landmarks[473].y - landmarks[386].y) / (landmarks[374].y - landmarks[386].y || 0.01);
+                // We use the iris landmarks if available, otherwise we fallback to eye center
+                const irisR = landmarks[473] || { 
+                    x: (landmarks[362].x + landmarks[263].x) / 2, 
+                    y: (landmarks[386].y + landmarks[374].y) / 2 
+                };
+                const irisL = landmarks[468] || { 
+                    x: (landmarks[133].x + landmarks[33].x) / 2,  
+                    y: (landmarks[159].y + landmarks[145].y) / 2 
+                };
 
-                const gazeX_L = (landmarks[468].x - landmarks[133].x) / (landmarks[33].x - landmarks[133].x || 0.01);
-                const gazeY_L = (landmarks[468].y - landmarks[159].y) / (landmarks[145].y - landmarks[159].y || 0.01);
+                const gazeX_R = (irisR.x - landmarks[362].x) / (landmarks[263].x - landmarks[362].x || 0.01);
+                const gazeY_R = (irisR.y - landmarks[386].y) / (landmarks[374].y - landmarks[386].y || 0.01);
+
+                const gazeX_L = (irisL.x - landmarks[133].x) / (landmarks[33].x - landmarks[133].x || 0.01);
+                const gazeY_L = (irisL.y - landmarks[159].y) / (landmarks[145].y - landmarks[159].y || 0.01);
 
                 // === CALCULATE RAW TARGET VALUES ===
                 const targetLeftRy = Math.max(1, eyeOpenR * 80);
@@ -257,27 +300,36 @@
                 leftPupil.setAttribute('transform', `translate(${state.moveX_L}, ${state.moveY_L})`);
                 rightPupil.setAttribute('transform', `translate(${state.moveX_R}, ${state.moveY_R})`);
             }
+            // Draw hand skeletons if detected
+            if (results.leftHandLandmarks) {
+                drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {color: '#CC0000', lineWidth: 2});
+                triggerHello(); 
+            }
+            if (results.rightHandLandmarks) {
+                drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {color: '#00CC00', lineWidth: 2});
+                triggerHello(); 
+            }
             canvasCtx.restore();
         }
 
-        // Initialize MediaPipe FaceMesh
-        const faceMesh = new FaceMesh({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        // Initialize MediaPipe Holistic (which includes FaceMesh) for better performance and future expandability
+        const holistic = new Holistic({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
         }});
         
-        faceMesh.setOptions({
+        holistic.setOptions({
             maxNumFaces: 1,
             refineLandmarks: true, // IMPORTANT: Enables Iris tracking
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
         
-        faceMesh.onResults(onResults);
+        holistic.onResults(onResults);
 
         // Initialize Camera
         const camera = new Camera(videoElement, {
             onFrame: async () => {
-                await faceMesh.send({image: videoElement});
+                await holistic.send({image: videoElement});
             },
             width: 640,
             height: 480

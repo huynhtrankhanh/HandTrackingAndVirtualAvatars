@@ -27,67 +27,166 @@
             height: 100%;
         }
 
-        /* Draggable Camera Container */
-        #cameraContainer {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 240px;
-            height: 180px;
-            background: #222;
-            border: 2px solid #fff;
-            border-radius: 8px;
-            cursor: grab;
-            z-index: 100;
+        #controlPanel {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(34, 34, 34, 0.8);
+            border: 2px solid #fff; border-radius: 8px;
+            padding: 15px; color: white; z-index: 100;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; flex-direction: column; gap: 15px;
+            width: 250px;
+        }
+        
+        .control-group {
+            display: flex; flex-direction: column; gap: 5px;
+        }
+        
+        .control-group label {
+            font-size: 14px; font-weight: bold;
+            display: flex; justify-content: space-between;
         }
 
-        #cameraContainer:active {
-            cursor: grabbing;
+        input[type=range] { width: 100%; cursor: pointer; }
+
+        .btn-group {
+            display: flex; gap: 10px;
         }
+
+        #pauseBtn, #endBtn {
+            flex: 1; padding: 10px; font-size: 14px; font-weight: bold;
+            color: white; border: none; border-radius: 5px; cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #pauseBtn { background-color: #4CAF50; }
+        #pauseBtn:hover { filter: brightness(1.1); }
+        #pauseBtn:disabled { background-color: #888; cursor: not-allowed; }
+
+        #endBtn { background-color: #ff9800; }
+        #endBtn:hover { filter: brightness(1.1); }
+
+        /* Draggable Camera Container */
+        #cameraContainer {
+            position: absolute; top: 20px; right: 20px;
+            width: 240px; height: 180px;
+            background: #222; border: 2px solid #fff; border-radius: 8px;
+            cursor: grab; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            overflow: hidden; 
+        }
+        #cameraContainer:active { cursor: grabbing; }
 
         /* Mirror the feed for a natural selfie-view */
         #debugCanvas {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            transform: scaleX(-1);
-            pointer-events: none; /* Let drag events pass to container */
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            transform: scaleX(-1); 
+            pointer-events: none; 
+            z-index: 10;
         }
 
         #videoElement {
-            display: none; /* Hide raw video; we draw directly to canvas */
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover; 
+            transform: scaleX(-1);
         }
 
         #loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: white;
-            font-size: 20px;
-            z-index: 10;
-            pointer-events: none;
-            text-align: center;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: white; font-size: 20px; z-index: 10; pointer-events: none; text-align: center;
+            background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
         }
     </style>
 </head>
 <body>
 
     <div id="loading">Initializing Camera & Hand Tracking...<br><small>Please allow camera access</small></div>
+
+    <div id="controlPanel">
+        <div class="btn-group">
+            <button id="pauseBtn">START GAME</button>
+            <button id="endBtn">END GAME</button>
+        </div>
+        <hr style="border: 0.5px solid #555; width: 100%;">
+        <div class="control-group">
+            <label><span>Hand Speed (Base)</span> <span id="handSpeedVal">8%</span></label>
+            <input type="range" id="handSpeedSlider" min="0.01" max="0.5" step="0.01" value="0.08">
+        </div>
+        <div class="control-group">
+            <label><span>Game Difficulty</span> <span id="ballSpeedVal">5</span></label>
+            <input type="range" id="ballSpeedSlider" min="2" max="15" step="1" value="5">
+        </div>
+    </div>
     
     <canvas id="gameCanvas"></canvas>
 
     <div id="cameraContainer">
-        <video id="videoElement" playsinline></video>
+        <video id="videoElement" playsinline autoplay muted></video>
         <canvas id="debugCanvas" width="240" height="180"></canvas>
     </div>
 
     <script>
+
+        // --- CONTROL PANEL INTERACTIONS ---
+        let isPaused = true;
+        let isGameOver = false;
+        let winnerMessage = "";
+
+        const pauseBtn = document.getElementById('pauseBtn');
+        const endBtn = document.getElementById('endBtn');
+        const handSpeedSlider = document.getElementById('handSpeedSlider');
+        const ballSpeedSlider = document.getElementById('ballSpeedSlider');
+        const handSpeedVal = document.getElementById('handSpeedVal');
+        const ballSpeedVal = document.getElementById('ballSpeedVal');
+
+        pauseBtn.addEventListener('click', () => {
+            isPaused = !isPaused;
+            if (isPaused) {
+                pauseBtn.innerText = "RESUME GAME";
+                pauseBtn.style.backgroundColor = "#4CAF50"; 
+            } else {
+                pauseBtn.innerText = "PAUSE GAME";
+                pauseBtn.style.backgroundColor = "#f44336"; 
+            }
+        });
+
+        endBtn.addEventListener('click', () => {
+            if (!isGameOver) {
+                // END CURRENT GAME
+                isGameOver = true;
+                isPaused = true; 
+                pauseBtn.disabled = true; // Disable pause button when game is over
+                endBtn.innerText = "PLAY AGAIN";
+                endBtn.style.backgroundColor = "#2196F3"; 
+
+                // Determine Winner
+                if (score1 > score2) winnerMessage = "PLAYER 1 WINS!";
+                else if (score2 > score1) winnerMessage = "PLAYER 2 WINS!";
+                else winnerMessage = "TIE GAME!";
+            } else {
+                // RESET FOR NEW GAME
+                isGameOver = false;
+                score1 = 0;
+                score2 = 0;
+                
+                // Reset UI
+                isPaused = true;
+                pauseBtn.disabled = false;
+                pauseBtn.innerText = "START GAME";
+                pauseBtn.style.backgroundColor = "#4CAF50";
+                
+                endBtn.innerText = "END GAME";
+                endBtn.style.backgroundColor = "#ff9800";
+                resetBall();
+            }
+        });
+
+        handSpeedSlider.oninput = function() {
+            handSpeedVal.innerText = Math.round(this.value * 100) + '%';
+        }
+        ballSpeedSlider.oninput = function() {
+            ballSpeedVal.innerText = this.value;
+        }
+
         // --- 1. GAME SETUP & RESIZING ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
@@ -96,6 +195,9 @@
         let paddleW, paddleH;
         let p1Y, p2Y, targetP1Y, targetP2Y;
         let ball = { x: 0, y: 0, vx: 0, vy: 0, r: 0 };
+
+        let score1 = 0; 
+        let score2 = 0;
 
         function resizeCanvas() {
             W = canvas.width = window.innerWidth;
@@ -113,9 +215,13 @@
         function resetBall() {
             ball.x = W / 2;
             ball.y = H / 2;
+
+            // Increase base speed
+            let baseSpeed = parseFloat(ballSpeedSlider.value);
+
             // Velocity scales with screen width
-            ball.vx = (Math.random() > 0.5 ? 1 : -1) * (W * 0.005 + 3); 
-            ball.vy = (Math.random() * 2 - 1) * (H * 0.005 + 3);
+            ball.vx = (Math.random() > 0.5 ? 1 : -1) * (W * 0.005 + baseSpeed); 
+            ball.vy = (Math.random() * 2 - 1) * (H * 0.005 + baseSpeed);
         }
 
         window.addEventListener('resize', resizeCanvas);
@@ -123,13 +229,24 @@
 
         // --- 2. GAME LOGIC & DRAWING ---
         function updateGame() {
+
+            let baseSpeed = parseFloat(handSpeedSlider.value);
+
+            let diff1 = Math.abs(targetP1Y - p1Y);
+            let diff2 = Math.abs(targetP2Y - p2Y);
+
+            let dynamicSpeed1 = Math.min(0.8, baseSpeed + (diff1 * 0.005));
+            let dynamicSpeed2 = Math.min(0.8, baseSpeed + (diff2 * 0.005));
+
             // Smoothly move paddles toward target positions (Lerp)
-            p1Y += (targetP1Y - p1Y) * 0.15;
-            p2Y += (targetP2Y - p2Y) * 0.15;
+            p1Y += (targetP1Y - p1Y) * dynamicSpeed1;
+            p2Y += (targetP2Y - p2Y) * dynamicSpeed2;
 
             // Clamp paddles within screen bounds
             p1Y = Math.max(0, Math.min(H - paddleH, p1Y));
             p2Y = Math.max(0, Math.min(H - paddleH, p2Y));
+
+            if (isPaused || isGameOver) return;
 
             // Move ball
             ball.x += ball.vx;
@@ -156,7 +273,14 @@
             }
 
             // Score / Out of bounds
-            if (ball.x < 0 || ball.x > W) resetBall();
+            if (ball.x < 0) { 
+                score2++; 
+                resetBall(); 
+            }
+            if (ball.x > W) { 
+                score1++; 
+                resetBall(); 
+            }
         }
 
         function drawGame() {
@@ -164,9 +288,16 @@
             ctx.fillStyle = 'black';
             ctx.fillRect(0, 0, W, H);
 
-            ctx.fillStyle = 'white';
+            // Draw Scores
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'; 
+            ctx.font = 'bold 100px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(score1, W * 0.25, H * 0.2);
+            ctx.fillText(score2, W * 0.75, H * 0.2);
 
-            // Draw Paddles
+            // Draw Paddles (Redraw to be on top of scores)
+            ctx.fillStyle = 'white';
             ctx.fillRect(W * 0.05, p1Y, paddleW, paddleH);
             ctx.fillRect(W * 0.95 - paddleW, p2Y, paddleW, paddleH);
 
@@ -184,6 +315,37 @@
             ctx.beginPath();
             ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
             ctx.fill();
+
+            if (isGameOver) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'; // Overlay
+                ctx.fillRect(0, 0, W, H);
+                
+                ctx.fillStyle = 'gold';
+                ctx.font = 'bold 80px sans-serif';
+                ctx.fillText("GAME OVER", W / 2, H / 2 - 70);
+                
+                // Highlight winner message
+                ctx.fillStyle = (score1 > score2) ? '#4CAF50' : ((score2 > score1) ? '#2196F3' : 'white');
+                ctx.font = 'bold 60px sans-serif';
+                ctx.fillText(winnerMessage, W / 2, H / 2 + 10);
+
+                ctx.fillStyle = 'white';
+                ctx.font = '30px sans-serif';
+                ctx.fillText(`Final Score: ${score1} - ${score2}`, W / 2, H / 2 + 80);
+            }
+            // Pause Overlay
+            else if (isPaused) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillRect(0, 0, W, H);
+                
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 50px sans-serif';
+                ctx.fillText("READY?", W / 2, H / 2 - 30);
+                
+                ctx.font = '20px sans-serif';
+                ctx.fillText("Click to Start!", W / 2, H / 2 + 30);
+            }
+
         }
 
         function gameLoop() {
@@ -229,7 +391,7 @@
             // Draw camera feed to debug canvas
             debugCtx.save();
             debugCtx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
-            debugCtx.drawImage(results.image, 0, 0, debugCanvas.width, debugCanvas.height);
+            // debugCtx.drawImage(results.image, 0, 0, debugCanvas.width, debugCanvas.height);
 
             if (results.multiHandLandmarks) {
                 for (const landmarks of results.multiHandLandmarks) {
@@ -281,25 +443,20 @@
         let isDragging = false, dragStartX = 0, dragStartY = 0, initialLeft = 0, initialTop = 0;
 
         function onDragStart(e) {
-            isDragging = true;
+            if(e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'VIDEO') return;
+            isDraggingCam = true;
             let event = e.type.includes('touch') ? e.touches[0] : e;
-            dragStartX = event.clientX;
-            dragStartY = event.clientY;
-            initialLeft = camContainer.offsetLeft;
-            initialTop = camContainer.offsetTop;
+            dragStartX = event.clientX; dragStartY = event.clientY;
+            initialLeft = camContainer.offsetLeft; initialTop = camContainer.offsetTop;
         }
 
         function onDragMove(e) {
-            if (!isDragging) return;
-            e.preventDefault(); // Prevent scrolling on touch devices
-            
+            if (!isDraggingCam) return;
+            e.preventDefault(); 
             let event = e.type.includes('touch') ? e.touches[0] : e;
-            let dx = event.clientX - dragStartX;
-            let dy = event.clientY - dragStartY;
-            
-            camContainer.style.left = (initialLeft + dx) + 'px';
-            camContainer.style.top = (initialTop + dy) + 'px';
-            camContainer.style.right = 'auto'; // Disable CSS right property so 'left' takes priority
+            camContainer.style.left = (initialLeft + (event.clientX - dragStartX)) + 'px';
+            camContainer.style.top = (initialTop + (event.clientY - dragStartY)) + 'px';
+            camContainer.style.right = 'auto'; 
         }
 
         function onDragEnd() {
